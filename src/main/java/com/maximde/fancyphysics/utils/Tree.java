@@ -1,7 +1,6 @@
 package com.maximde.fancyphysics.utils;
 
 import com.maximde.fancyphysics.FancyPhysics;
-import com.maximde.fancyphysics.utils.ToolUtil;
 import lombok.Getter;
 import org.bukkit.*;
 import org.bukkit.block.Block;
@@ -10,6 +9,8 @@ import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.Damageable;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.util.Transformation;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -39,8 +40,7 @@ public class Tree {
     private final ArrayList<Block> stem = new ArrayList<>();
     private final ArrayList<Block> leaves = new ArrayList<>();
     private final FancyPhysics fancyPhysics;
-    @Getter 
-    final HashMap<Location, Material> oldBlockList = new HashMap<Location, Material>();
+    @Getter final HashMap<Location, Material> oldBlockList = new HashMap<Location, Material>();
 
     /**
      * Constructs a Tree object with the given origin block and FancyPhysics instance.
@@ -61,43 +61,56 @@ public class Tree {
 
     /**
      * Breaks the tree with a falling animation if the tree is natural.
-     * Modified to use progressive durability loss.
      */
-    public void breakWithFallAnimation(Optional<Player> playerOptional) {
-        playerOptional.ifPresent(player -> {
+    public void breakWithFallAnimation(Optional<Player> player) {
+        player.ifPresent(value -> {
             if(fancyPhysics.getPluginConfig().isAffectedBlocksInPlayerStats()) {
-                if(this.stem.size() > 0)
-                    player.incrementStatistic(Statistic.MINE_BLOCK, this.wood_material, this.stem.size());
-                if(this.leaves.size() > 0)
-                    player.incrementStatistic(Statistic.MINE_BLOCK, this.leave_material, this.leaves.size());
+                if(this.stem.size() > 0)  value.incrementStatistic(Statistic.MINE_BLOCK, this.wood_material, this.stem.size());
+                if(this.leaves.size() > 0) value.incrementStatistic(Statistic.MINE_BLOCK, this.leave_material, this.leaves.size());
             }
-            // For every log in leaves and stem, spawn a BlockDisplay and apply progressive damage.
-            for (Block b : this.leaves) spawnDisplay(b, player);
-            for (Block b : this.stem) spawnDisplay(b, player);
 
-            if(fancyPhysics.getPluginConfig().isSounds()) {
-                origin.getLocation().getWorld().playSound(origin.getLocation(), Sound.ENTITY_ARMOR_STAND_BREAK, 1.0f, 1.0f);
-                Bukkit.getScheduler().scheduleSyncDelayedTask(this.fancyPhysics, () -> {
-                    origin.getWorld().playSound(origin.getLocation(), Sound.ENTITY_ARMOR_STAND_PLACE, 1.0f, 1.0f);
-                }, 18L);
+            // Decrease tool durability for each block in the tree (excluding origin)
+            ItemStack tool = value.getInventory().getItemInMainHand();
+            if (tool == null || tool.getType() == Material.AIR) {
+                return;
             }
+
+            ItemMeta meta = tool.getItemMeta();
+            if (!(meta instanceof Damageable)) {
+                return;
+            }
+
+            Damageable damageable = (Damageable) meta;
+            int totalDamage = (this.stem.size() - 1) + this.leaves.size();
+
+            int newDamage = damageable.getDamage() + totalDamage;
+            int maxDurability = tool.getType().getMaxDurability();
+
+            if (newDamage >= maxDurability) {
+                // Break the tool
+                value.getInventory().setItemInMainHand(new ItemStack(Material.AIR));
+            } else {
+                damageable.setDamage(newDamage);
+                tool.setItemMeta((ItemMeta) damageable);
+            }
+            value.getInventory().setItemInMainHand(tool); // Update the tool in hand
         });
-        // If no player provided, simply do nothing.
+
+        if(!isNatural) return;
+        for (Block b : this.leaves) spawnDisplay(b);
+        for (Block b : this.stem)  spawnDisplay(b);
+        if(fancyPhysics.getPluginConfig().isSounds()) {
+            origin.getLocation().getWorld().playSound(origin.getLocation(), Sound.ENTITY_ARMOR_STAND_BREAK, 1.0f, 1.0f);
+
+            Bukkit.getScheduler().scheduleSyncDelayedTask(this.fancyPhysics, () -> {
+                origin.getWorld().playSound(origin.getLocation(), Sound.ENTITY_ARMOR_STAND_PLACE, 1.0f, 1.0f);
+            }, 18L);
+        }
     }
 
-    /**
-     * Spawns a BlockDisplay for the given block and applies tool damage if the block is removed.
-     *
-     * @param block  The block to display.
-     * @param player The player chopping the tree.
-     */
-    private void spawnDisplay(Block block, Player player) {
+    private void spawnDisplay(Block block) {
         final var location = block.getLocation();
         final BlockData blockData = block.getType().createBlockData();
-
-        if (isWoodenFence(block.getType())) {
-            return;
-        }
 
         /*
          * Spawn block display
@@ -106,24 +119,19 @@ public class Tree {
             this.fancyPhysics.displayList.add(blockDisplay);
             blockDisplay.setBlock(blockData);
             blockDisplay.addScoreboardTag("fancyphysics_tree");
-            // For non-origin blocks, remove the block and apply durability damage.
-            if(block != origin) {
-                block.setType(Material.AIR);
-                // Progressive durability loss: damage the player's tool by 1 point for this block.
-                ItemStack tool = player.getInventory().getItemInMainHand();
-                if(ToolUtil.isValidAxe(tool)) {
-                    ToolUtil.damageTool(tool, 1, player);
-                }
-            }
+            if(block != origin) block.setType(Material.AIR);
 
             var transformationY = - 1 + (this.origin.getY() - (block.getY()));
             var transformationZ = (this.origin.getY() - block.getY()) + (this.origin.getY() - block.getY()) / 0.9F;
 
             /*
-             * Transform display (Falling animation)
+            Transform display (Falling animation)
              */
             Bukkit.getScheduler().scheduleSyncDelayedTask(this.fancyPhysics, () -> {
+
+
                 final var loc = blockDisplay.getLocation().add(0,(this.origin.getY() - (block.getY() + 0.7F)) + 1.5F, transformationY -0.5F);
+
                 Block impactLocation = loc.getBlock();
 
                 if(loc.getBlock().getType().isSolid()) {
@@ -135,50 +143,57 @@ public class Tree {
                 }
 
                 Transformation transformation = new Transformation(
-                        new Vector3f(0, transformationY + (this.origin.getY() - (block.getY() + 0.6F)) / 2, transformationZ), // translation
-                        new Quaternionf(-1.0F + (float)loc.distance(impactLocation.getLocation()) / 10, 0, 0, 0.1),       // left rotation
-                        new Vector3f(1F, 1F,1F),    // scale
-                        blockDisplay.getTransformation().getRightRotation()  // right rotation
+                        new Vector3f(0, transformationY + (this.origin.getY() - (block.getY() + 0.6F)) / 2, transformationZ),//translation
+                        new Quaternionf(-1.0F + (float)loc.distance(impactLocation.getLocation()) / 10,0,0,0.1),   //left rotation
+                        new Vector3f(1F, 1F,1F),    //scale
+                        blockDisplay.getTransformation().getRightRotation()  //right rotation
                 );
                 blockDisplay.setInterpolationDuration(30);
                 blockDisplay.setInterpolationDelay(-1);
                 blockDisplay.setTransformation(transformation);
 
                 /*
-                 * Break tree: schedule drop and final removal.
+                Break tree
                  */
                 Block finalImpactLocation = impactLocation;
                 Bukkit.getScheduler().scheduleSyncDelayedTask(this.fancyPhysics, () -> {
-                    if(fancyPhysics.getPluginConfig().isDropSaplings()) {
-                        var b = blockDisplay.getLocation().add(0, transformationY + 2, transformationY).getBlock();
-                        if(b.getType() == Material.AIR) {
-                            b.setType(blockData.getMaterial());
-                            b.breakNaturally();
-                        }
+
+                    if(false) { //TODO add option to config
+                        blockDisplay.getLocation().getWorld().spawnParticle(Particle.BLOCK_CRACK, finalImpactLocation.getLocation(), 50, blockData);
                     } else {
-                        if (!isWoodenFence(blockData.getMaterial())) {
-                        blockDisplay.getLocation().getWorld().dropItem(blockDisplay.getLocation().add(0, transformationY + 2, transformationY),
-                                new ItemStack(blockData.getMaterial()));
-                            }
+                        if(!finalImpactLocation.getType().isSolid()) {
+                            this.fancyPhysics.getParticleGenerator().simulateBlockParticles(finalImpactLocation.getLocation(), blockData.getMaterial());
+                        }
                     }
-                    this.fancyPhysics.displayList.remove(blockDisplay);
-                    blockDisplay.remove();
-                }, 4L);
+                    removeTree(blockDisplay, transformationY, blockData);
+
+                }, 12L - Math.min(11, (int)(loc.distance(impactLocation.getLocation()) * 2)));
             }, 2L);
         });
     }
 
-    private boolean isWoodenFence(Material material) {
-        return material == Material.OAK_FENCE ||
-               material == Material.SPRUCE_FENCE ||
-               material == Material.BIRCH_FENCE ||
-               material == Material.JUNGLE_FENCE ||
-               material == Material.ACACIA_FENCE ||
-               material == Material.DARK_OAK_FENCE ||
-               material == Material.MANGROVE_FENCE ||
-               material == Material.CHERRY_FENCE;
+    /**
+     * Removes the tree after the falling animation is completed.
+     *
+     * @param blockDisplay     The block display to remove.
+     * @param transformationY  The Y transformation value.
+     * @param blockData        The block data of the block display to get the material.
+     */
+    private void removeTree(BlockDisplay blockDisplay, float transformationY, BlockData blockData) {
+        Bukkit.getScheduler().scheduleSyncDelayedTask(this.fancyPhysics, () -> {
+            if(this.fancyPhysics.getPluginConfig().isDropSaplings()) {
+                var b = blockDisplay.getLocation().add(0, transformationY + 2, transformationY).getBlock();
+                if(b.getType() == Material.AIR) {
+                    b.setType(blockData.getMaterial());
+                    b.breakNaturally();
+                }
+            } else {
+                blockDisplay.getLocation().getWorld().dropItem(blockDisplay.getLocation().add(0, transformationY + 2, transformationY), new ItemStack(blockData.getMaterial()));
+            }
+            this.fancyPhysics.displayList.remove(blockDisplay);
+            blockDisplay.remove();
+        }, 4L);
     }
-
 
     /**
      * Breaks the tree instantly without any animation if the tree is natural.
@@ -210,7 +225,7 @@ public class Tree {
      * Determines the material of the leaves based on the wood material of the tree.
      *
      * @param material  The wood material of the tree.
-     * @return          The material of the leaves.
+     * @return      The material of the leaves.
      */
     private String getLeaveType(Material material) {
         return switch (material.name()) {
@@ -230,17 +245,14 @@ public class Tree {
 
     private int distanceToLastValid = 0;
     private int amount = 0;
-    private List<Block> scannedBlocks = new ArrayList<>();
 
+    private List<Block> scannedBlocks = new ArrayList<>();
     /**
      * Recursively scans the tree structure, populating the stem and leaves lists.
      *
      * @param block  The current block being scanned.
      */
     private void scanTree(Block block) {
-        if (isWoodenFence(block.getType())) {
-            return;
-        }
         scannedBlocks.add(block);
         amount++;
         if (Math.abs(block.getX() - this.origin.getX()) > 10 || Math.abs(block.getZ() - this.origin.getZ()) > 10)
@@ -285,6 +297,7 @@ public class Tree {
                 distanceToLastValid = 0;
                 return;
             }
+
             if(amount < this.fancyPhysics.getPluginConfig().getTreeMaxInvalidScans() && this.stem.size() > 4 && advancedStemScan && distanceToLastValid < this.fancyPhysics.getPluginConfig().getTreeMaxInvalidBlockDistance()) {
                 distanceToLastValid++;
                 if(!scannedBlocks.contains(currentBlock)) scanTree(currentBlock);
