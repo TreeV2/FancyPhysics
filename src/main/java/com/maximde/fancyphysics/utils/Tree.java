@@ -44,44 +44,46 @@ public class Tree {
 
     public void breakWithFallAnimation(Optional<Player> player) {
         player.ifPresent(value -> {
-            if (fancyPhysics.getPluginConfig().isAffectedBlocksInPlayerStats()) {
-                if (this.stem.size() > 0)
-                    value.incrementStatistic(Statistic.MINE_BLOCK, this.wood_material, this.stem.size());
-                if (this.leaves.size() > 0)
-                    value.incrementStatistic(Statistic.MINE_BLOCK, this.leave_material, this.leaves.size());
+            if(fancyPhysics.getPluginConfig().isAffectedBlocksInPlayerStats()) {
+                if(this.stem.size() > 0)  value.incrementStatistic(Statistic.MINE_BLOCK, this.wood_material, this.stem.size());
+                if(this.leaves.size() > 0) value.incrementStatistic(Statistic.MINE_BLOCK, this.leave_material, this.leaves.size());
             }
-
+    
+            // Decrease tool durability only for additional stem blocks (excluding origin and leaves)
             ItemStack tool = value.getInventory().getItemInMainHand();
             if (tool == null || tool.getType() == Material.AIR) {
                 return;
             }
-
+    
             ItemMeta meta = tool.getItemMeta();
             if (!(meta instanceof Damageable)) {
                 return;
             }
-
+    
             Damageable damageable = (Damageable) meta;
-            int totalDamage = (this.stem.size() - 1) + this.leaves.size();
-
+            int totalDamage = this.stem.size() - 1; // Exclude origin block
+    
+            if (totalDamage <= 0) return; // No additional blocks to charge
+    
             int newDamage = damageable.getDamage() + totalDamage;
             int maxDurability = tool.getType().getMaxDurability();
-
+    
+            // Ensure tool doesn't get destroyed if at exactly max durability
             if (newDamage >= maxDurability) {
                 value.getInventory().setItemInMainHand(new ItemStack(Material.AIR));
             } else {
                 damageable.setDamage(newDamage);
-                tool.setItemMeta((ItemMeta) damageable);
+                tool.setItemMeta(meta);
+                value.getInventory().setItemInMainHand(tool); // Update durability
             }
-            value.getInventory().setItemInMainHand(tool);
         });
-
-        if (!isNatural) return;
+    
+        // Rest of the method remains unchanged
+        if(!isNatural) return;
         for (Block b : this.leaves) spawnDisplay(b);
-        for (Block b : this.stem) spawnDisplay(b);
-        if (fancyPhysics.getPluginConfig().isSounds()) {
+        for (Block b : this.stem)  spawnDisplay(b);
+        if(fancyPhysics.getPluginConfig().isSounds()) {
             origin.getLocation().getWorld().playSound(origin.getLocation(), Sound.ENTITY_ARMOR_STAND_BREAK, 1.0f, 1.0f);
-
             Bukkit.getScheduler().scheduleSyncDelayedTask(this.fancyPhysics, () -> {
                 origin.getWorld().playSound(origin.getLocation(), Sound.ENTITY_ARMOR_STAND_PLACE, 1.0f, 1.0f);
             }, 18L);
