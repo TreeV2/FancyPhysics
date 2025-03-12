@@ -49,36 +49,34 @@ public class Tree {
                 if(this.leaves.size() > 0) value.incrementStatistic(Statistic.MINE_BLOCK, this.leave_material, this.leaves.size());
             }
     
-            // Decrease tool durability only for additional stem blocks (excluding origin and leaves)
-            ItemStack tool = value.getInventory().getItemInMainHand();
-            if (tool == null || tool.getType() == Material.AIR) {
-                return;
-            }
+            if (this.isNatural) {
+                ItemStack tool = value.getInventory().getItemInMainHand();
+                if (tool == null || tool.getType() == Material.AIR) return;
     
-            ItemMeta meta = tool.getItemMeta();
-            if (!(meta instanceof Damageable)) {
-                return;
-            }
+                ItemMeta meta = tool.getItemMeta();
+                if (!(meta instanceof Damageable)) return; // Protect non-tools
     
-            Damageable damageable = (Damageable) meta;
-            int totalDamage = this.stem.size() - 1; // Exclude origin block
+                Damageable damageable = (Damageable) meta;
+                int totalDamage = (this.stem.size() - 1) + this.leaves.size();
     
-            if (totalDamage <= 0) return; // No additional blocks to charge
+                if (totalDamage <= 0) return;
     
-            int newDamage = damageable.getDamage() + totalDamage;
-            int maxDurability = tool.getType().getMaxDurability();
+                int newDamage = damageable.getDamage() + totalDamage;
+                int maxDurability = tool.getType().getMaxDurability();
     
-            // Ensure tool doesn't get destroyed if at exactly max durability
-            if (newDamage >= maxDurability) {
-                value.getInventory().setItemInMainHand(new ItemStack(Material.AIR));
-            } else {
-                damageable.setDamage(newDamage);
-                tool.setItemMeta(meta);
-                value.getInventory().setItemInMainHand(tool); // Update durability
+                if (newDamage >= maxDurability) {
+                    // Only break the tool if it's truly exhausted
+                    if (tool.getType().getMaxDurability() > 0) { // Extra protection
+                        value.getInventory().setItemInMainHand(new ItemStack(Material.AIR));
+                    }
+                } else {
+                    damageable.setDamage(newDamage);
+                    tool.setItemMeta(meta);
+                    value.getInventory().setItemInMainHand(tool);
+                }
             }
         });
     
-        // Rest of the method remains unchanged
         if(!isNatural) return;
         for (Block b : this.leaves) spawnDisplay(b);
         for (Block b : this.stem)  spawnDisplay(b);
