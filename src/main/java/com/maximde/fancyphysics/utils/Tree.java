@@ -202,63 +202,64 @@ public class Tree {
             default -> "AIR";
         };
     }
+private int distanceToLastValid = 0;
+private int amount = 0;
+private List<Block> scannedBlocks = new ArrayList<>();
 
-    private int distanceToLastValid = 0;
-    private int amount = 0;
-    private List<Block> scannedBlocks = new ArrayList<>();
+private void scanTree(Block block) {
+    if (scannedBlocks.contains(block)) return;
+    scannedBlocks.add(block);
+    amount++;
 
-    private void scanTree(Block block) {
-        scannedBlocks.add(block);
-        amount++;
-        if (Math.abs(block.getX() - this.origin.getX()) > 10 || Math.abs(block.getZ() - this.origin.getZ()) > 10)
-            return;
-        if (block.getType() == this.wood_material) {
-            if (this.stem.size() < this.fancyPhysics.getPluginConfig().getTreeMaxStemSize()) {
-                if (this.stem.contains(block))
-                    return;
-                this.stem.add(block);
-                this.oldBlockList.put(block.getLocation(), block.getType());
-            } else {
-                this.isNatural = false;
-                return;
-            }
-        } else if (block.getType() == this.leave_material) {
-            if (this.leaves.size() < this.fancyPhysics.getPluginConfig().getTreeMaxLeavesSize()) {
-                if (this.leaves.contains(block))
-                    return;
-                this.leaves.add(block);
-                this.oldBlockList.put(block.getLocation(), block.getType());
-            } else {
-                this.isNatural = false;
-                return;
-            }
-        }
-
-        boolean advancedStemScan = this.fancyPhysics.getPluginConfig().isAdvancedStemScan();
-
-        if (Arrays.asList(Material.COCOA_BEANS, Material.VINE, Material.SNOW).contains(block.getType()) && advancedStemScan) {
-            block.breakNaturally();
-        }
-
-        Arrays.asList(BlockFace.DOWN, BlockFace.UP, BlockFace.SOUTH, BlockFace.NORTH, BlockFace.WEST, BlockFace.EAST).forEach(blockFace -> {
-            final var currentBlock = block.getRelative(blockFace);
-
-            boolean scan = (currentBlock.getType() == this.wood_material || currentBlock.getType() == this.leave_material);
-            if (blockFace == BlockFace.DOWN && currentBlock.getY() <= this.origin.getY() + 12) {
-                scan = false;
-            }
-            if (scan) {
-                scanTree(currentBlock);
-                distanceToLastValid = 0;
-                return;
-            }
-
-            if (amount < this.fancyPhysics.getPluginConfig().getTreeMaxInvalidScans() && this.stem.size() > 4 && advancedStemScan && distanceToLastValid < this.fancyPhysics.getPluginConfig().getTreeMaxInvalidBlockDistance()) {
-                distanceToLastValid++;
-                if (!scannedBlocks.contains(currentBlock)) scanTree(currentBlock);
-            }
-        });
+    // Increased vertical scan range for tall trees
+    int maxHorizontal = 25; // From 10 to 25 blocks
+    int maxVertical = 60; // From 12 to 60 blocks
+    if (Math.abs(block.getX() - this.origin.getX()) > maxHorizontal || 
+        Math.abs(block.getZ() - this.origin.getZ()) > maxHorizontal ||
+        Math.abs(block.getY() - this.origin.getY()) > maxVertical) {
+        return;
     }
+
+    // Original material handling
+    if (block.getType() == this.wood_material) {
+        if (this.stem.size() >= this.fancyPhysics.getPluginConfig().getTreeMaxStemSize()) {
+            this.isNatural = false;
+            return;
+        }
+        this.stem.add(block);
+        this.oldBlockList.put(block.getLocation(), block.getType());
+    } else if (block.getType() == this.leave_material) {
+        if (this.leaves.size() >= this.fancyPhysics.getPluginConfig().getTreeMaxLeavesSize()) {
+            this.isNatural = false;
+            return;
+        }
+        this.leaves.add(block);
+        this.oldBlockList.put(block.getLocation(), block.getType());
+    }
+
+    // Full 3D scanning including diagonals
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            for (int z = -1; z <= 1; z++) {
+                if (x == 0 && y == 0 && z == 0) continue; // Skip current block
+                
+                Block relative = block.getRelative(x, y, z);
+                boolean isWoodOrLeaf = relative.getType() == this.wood_material 
+                                    || relative.getType() == this.leave_material;
+
+                if (isWoodOrLeaf) {
+                    scanTree(relative);
+                    distanceToLastValid = 0;
+                } else if (this.fancyPhysics.getPluginConfig().isAdvancedStemScan() 
+                        && this.stem.size() > 4 
+                        && distanceToLastValid < this.fancyPhysics.getPluginConfig().getTreeMaxInvalidBlockDistance()) {
+                    distanceToLastValid++;
+                    scanTree(relative);
+                }
+            }
+        }
+    }
+}
 
     public ArrayList<Block> getStem() {
         return stem;
