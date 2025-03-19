@@ -48,19 +48,20 @@ public class BlockBreakListener implements Listener {
     }
 
     private boolean manageTreePhysics(BlockBreakEvent event) {
-    if (isWood(event.getBlock().getRelative(BlockFace.UP).getType()) && this.fancyPhysics.getPluginConfig().isRealisticTrees()) {
-        Tree tree;
-        if (isWood(event.getBlock().getType())) {
-            tree = new Tree(event.getBlock(), this.fancyPhysics);
-        } else {
-            tree = new Tree(event.getBlock().getRelative(BlockFace.UP), this.fancyPhysics);
-            if (!tree.isNatural()) return false;
-            if (!fancyPhysics.getPluginConfig().isGravityInAir()) return false;
-            tree.getStem().forEach(block -> replaceWithFallingBlock(block, tree.getOrigin()));
-            tree.getLeaves().forEach(block -> replaceWithFallingBlock(block, tree.getOrigin()));
-            replaceWithFallingBlock(tree.getOrigin(), tree.getOrigin());
-            return false;
-        }
+        if (isWood(event.getBlock().getRelative(BlockFace.UP).getType()) && this.fancyPhysics.getPluginConfig().isRealisticTrees()) {
+            Tree tree;
+            if (isWood(event.getBlock().getType())) {
+                tree = new Tree(event.getBlock(), this.fancyPhysics);
+            } else {
+                tree = new Tree(event.getBlock().getRelative(BlockFace.UP), this.fancyPhysics);
+                if (!tree.isNatural()) return false;
+                if (!fancyPhysics.getPluginConfig().isGravityInAir()) return false;
+                tree.getStem().forEach(block -> replaceWithFallingBlock(block, tree.getOrigin()));
+                tree.getLeaves().forEach(block -> replaceWithFallingBlock(block, tree.getOrigin()));
+                replaceWithFallingBlock(tree.getOrigin(), tree.getOrigin());
+                return false;
+            }
+    
 
             if (fancyPhysics.getPluginConfig().isTreeChopDelay() && tree.isNatural() && tree.getStem().size() > 4 && !event.getBlock().getType().name().contains("STRIPPED") && !event.getBlock().getType().name().contains("MUD_BRICK_WALL") && !event.getBlock().getType().name().contains("FENCE")) {
                 event.getBlock().setType(getStripedLog(event.getBlock().getType()));
@@ -109,41 +110,44 @@ public class BlockBreakListener implements Listener {
         if (treeBreakEvent.isCancelled()) return true;
         tree.breakWithFallAnimation(Optional.of(event.getPlayer()));
         if (fancyPhysics.getPluginConfig().isTreeRegeneration()) regenerate(tree, fancyPhysics.getPluginConfig().getTreeRegenerationDelay());
-        
-        // Prevent item drops for fences/mud walls
-        Material brokenType = event.getBlock().getType();
-        if (brokenType.name().endsWith("FENCE") || brokenType == Material.MUD_BRICK_WALL) {
-            event.setDropItems(false); // Block breaks but no item drops
+
+        // Only prevent drops if the tree is valid/natural
+        if (tree.isNatural()) { // ADD THIS CHECK
+            Material brokenType = event.getBlock().getType();
+            if (brokenType.name().endsWith("FENCE") || brokenType == Material.MUD_BRICK_WALL) {
+                event.setDropItems(false); 
+            }
         }
+
         return true;
     }
     return true;
 }
 
     private void replaceWithFallingBlock(Block block, Block origin) {
-    final BlockData blockData = block.getType().createBlockData();
-    if (block.getType() == Material.AIR) return;
-    if (block != origin 
-        && block.getRelative(BlockFace.DOWN).getType().isSolid() 
-        && !isWood(block.getRelative(BlockFace.DOWN).getType())) { // Added closing ')'
-        return;
-    }
+        final BlockData blockData = block.getType().createBlockData();
+        if (block.getType() == Material.AIR) return;
+        if (block != origin 
+            && block.getRelative(BlockFace.DOWN).getType().isSolid() 
+            && !isWood(block.getRelative(BlockFace.DOWN).getType())) { // Added closing ')'
+            return;
+        }
 
-    Material material = block.getType();
-    boolean isFenceOrMudWall = material.name().endsWith("FENCE") || material == Material.MUD_BRICK_WALL;
+        Material material = block.getType();
+        boolean isFenceOrMudWall = material.name().endsWith("FENCE") || material == Material.MUD_BRICK_WALL;
 
-    // Remove potential item drops immediately
-    if (isFenceOrMudWall) {
-        block.setType(Material.AIR);
-        block.getWorld().getNearbyEntities(block.getLocation(), 0.5, 0.5, 0.5).forEach(entity -> {
-            if (entity instanceof org.bukkit.entity.Item item && item.getItemStack().getType() == material) {
-                item.remove();
-            }
-        });
-    } else {
-        block.setType(Material.AIR);
-    }
-        
+        // Remove potential item drops immediately
+        if (isFenceOrMudWall) {
+            block.setType(Material.AIR);
+            block.getWorld().getNearbyEntities(block.getLocation(), 0.5, 0.5, 0.5).forEach(entity -> {
+                if (entity instanceof org.bukkit.entity.Item item && item.getItemStack().getType() == material) {
+                    item.remove();
+                }
+            });
+        } else {
+            block.setType(Material.AIR);
+        }
+
         block.getWorld().spawn(block.getLocation(), BlockDisplay.class, blockDisplay -> {
             blockDisplay.setBlock(blockData);
             blockDisplay.addScoreboardTag("fancyphysics_tree");
